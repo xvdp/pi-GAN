@@ -63,6 +63,8 @@ def train(rank, world_size, opt):
     curriculum = getattr(curriculums, opt.curriculum)
     if opt.dataset_path != "":
         curriculum["dataset_path"]= opt.dataset_path
+    if opt.batch_size > 0:
+        curriculum["batch_size"] = opt.batch_size
     assert osp.isdir(osp.split(curriculum["dataset_path"])[0]), f"dataset path {curriculum['dataset_path']} not found"
 
     metadata = curriculums.extract_metadata(curriculum, 0)
@@ -70,7 +72,6 @@ def train(rank, world_size, opt):
     fixed_z = z_sampler((25, 256), device='cpu', dist=metadata['z_dist'])
 
     SIREN = getattr(siren, metadata['model'])
-
 
     scaler = torch.cuda.amp.GradScaler()
 
@@ -170,11 +171,11 @@ def train(rank, world_size, opt):
             if discriminator.step % opt.model_save_interval == 0 and rank == 0:
                 now = datetime.now()
                 now = now.strftime("%d--%H:%M--")
-                torch.save(ema, os.path.join(opt.output_dir, now + 'ema.pth'))
-                torch.save(ema2, os.path.join(opt.output_dir, now + 'ema2.pth'))
+                torch.save(ema.state_dict(), os.path.join(opt.output_dir, now + 'ema.pth'))
+                torch.save(ema2.state_dict(), os.path.join(opt.output_dir, now + 'ema2.pth'))
 
-                torch.save(generator, os.path.join(opt.output_dir, now + 'generator.pth'))
-                torch.save(discriminator, os.path.join(opt.output_dir, now + 'discriminator.pth'))
+                torch.save(generator.state_dict(), os.path.join(opt.output_dir, now + 'generator.pth'))
+                torch.save(discriminator.state_dict(), os.path.join(opt.output_dir, now + 'discriminator.pth'))
 
                 torch.save(optimizer_G.state_dict(), os.path.join(opt.output_dir, now + 'optimizer_G.pth'))
                 torch.save(optimizer_D.state_dict(), os.path.join(opt.output_dir, now + 'optimizer_D.pth'))
@@ -339,10 +340,10 @@ def train(rank, world_size, opt):
                     ema.restore(generator.parameters())
 
                 if discriminator.step % opt.sample_interval == 0:
-                    torch.save(ema, os.path.join(opt.output_dir, 'ema.pth'))
-                    torch.save(ema2, os.path.join(opt.output_dir, 'ema2.pth'))
-                    torch.save(generator, os.path.join(opt.output_dir, 'generator.pth'))
-                    torch.save(discriminator, os.path.join(opt.output_dir, 'discriminator.pth'))
+                    torch.save(ema.state_dict(), os.path.join(opt.output_dir, 'ema.pth'))
+                    torch.save(ema2.state_dict(), os.path.join(opt.output_dir, 'ema2.pth'))
+                    torch.save(generator.state_dict(), os.path.join(opt.output_dir, 'generator.pth'))
+                    torch.save(discriminator.state_dict(), os.path.join(opt.output_dir, 'discriminator.pth'))
                     torch.save(optimizer_G.state_dict(), os.path.join(opt.output_dir, 'optimizer_G.pth'))
                     torch.save(optimizer_D.state_dict(), os.path.join(opt.output_dir, 'optimizer_D.pth'))
                     torch.save(scaler.state_dict(), os.path.join(opt.output_dir, 'scaler.pth'))
@@ -376,6 +377,9 @@ def train(rank, world_size, opt):
     cleanup()
 
 if __name__ == '__main__':
+    """
+    python train_local.py --curriculum 'CelebA' --output_dir './x_tests' --dataset_path '/media/z/Elements1/data/Face/CelebA/img_align_celeba/*.jpg'
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_epochs", type=int, default=3000, help="number of epochs of training")
     parser.add_argument("--sample_interval", type=int, default=200, help="interval between image sampling")
@@ -389,6 +393,7 @@ if __name__ == '__main__':
 
     # redirects dataset_path from curriculums.py
     parser.add_argument('--dataset_path', type=str, default='')
+    parser.add_argument('--batch_size', type=int, default=28) # ~28 images per 24GB ram
 
 
     OPT = parser.parse_args()
@@ -400,4 +405,4 @@ if __name__ == '__main__':
     else:
         num_gpus  = torch.cuda.device_count()
 
-    train(-1, num_gpus, OPT)
+    train(0, num_gpus, OPT)
