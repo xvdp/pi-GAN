@@ -2,17 +2,17 @@ import argparse
 import math
 import os
 
-from torchvision.utils import save_image
-
 import torch
+from torchvision import transforms
+from torchvision.utils import save_image
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
-import numpy as np
 import skvideo.io
-import curriculums
-from torchvision import transforms
 
+
+# pylint: disable=no-member
+# pylint: disable=not-callable
 def tensor_to_PIL(img):
     img = img.squeeze() * 0.5 + 0.5
     return Image.fromarray(img.mul(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy())

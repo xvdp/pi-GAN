@@ -5,19 +5,17 @@ run this file as a script.
 """
 
 import os
-import shutil
-import torch
 import copy
 import argparse
+import torch
 
 from torchvision.utils import save_image
 from pytorch_fid import fid_score
 from tqdm import tqdm
 
 import datasets
-import curriculums
 
-
+# pylint: disable=no-member
 def output_real_images(dataloader, num_imgs, real_dir):
     img_counter = 0
     batch_size = dataloader.batch_size

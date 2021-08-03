@@ -1,19 +1,10 @@
 """Datasets"""
 
-import os
-
-import torch
-from torch.utils.data import DataLoader, Dataset
-from torchvision import datasets
-import torchvision.transforms as transforms
-import torchvision
 import glob
+import torch
+from torch.utils.data import Dataset
+import torchvision.transforms as transforms
 import PIL
-import random
-import math
-import pickle
-import numpy as np
-
 
 class CelebA(Dataset):
     """CelelebA Dataset"""

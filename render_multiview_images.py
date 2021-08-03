@@ -1,9 +1,6 @@
 import argparse
-import math
-import glob
-import numpy as np
-import sys
 import os
+import matplotlib.pyplot as plt
 
 import torch
 from torchvision.utils import save_image
@@ -11,6 +8,7 @@ from tqdm import tqdm
 
 import curriculums
 
+# pylint: disable=no-member
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def show(tensor_img):

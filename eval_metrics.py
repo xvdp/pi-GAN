@@ -1,17 +1,14 @@
 import os
 import shutil
+import argparse
 import torch
-import math
 
 from torch_fidelity import calculate_metrics
 from torchvision.utils import save_image
 from tqdm import tqdm
-import copy
-import argparse
-import shutil
-
 import curriculums
 
+# pylint: disable=no-member
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()

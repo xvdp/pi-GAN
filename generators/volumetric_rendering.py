@@ -2,18 +2,16 @@
 Differentiable volumetric implementation used by pi-GAN generator.
 """
 
-import time
-from functools import partial
-
 import math
+import random
 import numpy as np
 import torch
 import torch.nn.functional as F
-import matplotlib.pyplot as plt
-import random
 
 from .math_utils_torch import *
 
+# pylint: disable=no-member
+# pylint: disable=not-callable
 
 def fancy_integration(rgb_sigma, z_vals, device, noise_std=0.5, last_back=False, white_back=False, clamp_mode=None, fill_mode=None):
     """Performs NeRF volumetric rendering."""
@@ -197,7 +195,7 @@ def create_cam2world_matrix(forward_vector, origin, device=None):
 
 def create_world2cam_matrix(forward_vector, origin):
     """Takes in the direction the camera is pointing and the camera origin and returns a world2cam matrix."""
-    cam2world = create_cam2world_matrix(forward_vector, origin, device=device)
+    cam2world = create_cam2world_matrix(forward_vector, origin, device=forward_vector.device)
     world2cam = torch.inverse(cam2world)
     return world2cam
 

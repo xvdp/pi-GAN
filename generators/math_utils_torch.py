@@ -4,7 +4,7 @@ Utilities for geometry etc.
 
 import torch
 
-
+# pylint: disable=no-member
 def transform_vectors(matrix: torch.Tensor, vectors4: torch.Tensor) -> torch.Tensor:
     """
     Left-multiplies MxM @ NxM. Returns NxM.

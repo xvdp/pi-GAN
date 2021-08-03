@@ -2,16 +2,14 @@ import argparse
 import math
 import os
 
-from torchvision.utils import save_image
-
 import torch
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
-import numpy as np
 import skvideo.io
 import curriculums
 
+# pylint: disable=no-member
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 parser = argparse.ArgumentParser()

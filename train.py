@@ -2,15 +2,13 @@
 
 import argparse
 import os
-import numpy as np
 import math
-
-from collections import deque
+import copy
+from datetime import datetime
 
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torchvision.utils import save_image
@@ -23,11 +21,11 @@ import fid_evaluation
 import datasets
 import curriculums
 from tqdm import tqdm
-from datetime import datetime
-import copy
 
 from torch_ema import ExponentialMovingAverage
 
+
+# pylint: disable=no-member
 def setup(rank, world_size, port):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = port

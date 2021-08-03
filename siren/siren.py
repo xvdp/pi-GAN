@@ -1,9 +1,9 @@
 import numpy as np
 import torch.nn as nn
 import torch
-import math
 import torch.nn.functional as F
 
+#pylint: disable=no-member
 class Sine(nn.Module):
     """Sine Activation Function."""
 
@@ -214,16 +214,6 @@ class SPATIALSIRENBASELINE(nn.Module):
         
         return torch.cat([rbg, sigma], dim=-1)
     
-    
-    
-class UniformBoxWarp(nn.Module):
-    def __init__(self, sidelength):
-        super().__init__()
-        self.scale_factor = 2/sidelength
-
-    def forward(self, coordinates):
-        return coordinates * self.scale_factor
-
 
 def sample_from_3dgrid(coordinates, grid):
     """

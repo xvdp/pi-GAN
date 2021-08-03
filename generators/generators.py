@@ -1,14 +1,11 @@
 """Implicit generator for 3D volumes"""
 
-import random
 import torch.nn as nn
 import torch
-import time
-import curriculums
-from torch.cuda.amp import autocast
 
 from .volumetric_rendering import *
 
+# pylint: disable=no-member
 class ImplicitGenerator3d(nn.Module):
     def __init__(self, siren, z_dim, **kwargs):
         super().__init__()

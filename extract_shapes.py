@@ -1,13 +1,11 @@
-import plyfile
+import os
 import argparse
 import torch
 import numpy as np
-import skimage.measure
-import scipy
+
 import mrcfile
-import os
 
-
+# pylint: disable=no-member
 def create_samples(N=256, voxel_origin=[0, 0, 0], cube_length=2.0):
     # NOTE: the voxel_origin is actually the (bottom, left, down) corner, not the middle
     voxel_origin = np.array(voxel_origin) - cube_length/2
