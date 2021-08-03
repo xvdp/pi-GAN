@@ -4,7 +4,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from sgdiscriminators import *
+from .sgdiscriminators import *
 
 # pylint: disable=no-member
 
