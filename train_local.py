@@ -39,7 +39,7 @@ import curriculums
 
 # pylint: disable=no-member
 
-safelog10 = lambda x: 0.0 if not x else np.log10(x)
+safelog10 = lambda x: 0.0 if not x else np.log10(np.abs(x))
 sround = lambda x, d=1: np.round(x, max((-np.floor(safelog10(x)).astype(int) + d), 0))
 
 def cleanup():

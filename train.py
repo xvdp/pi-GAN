@@ -64,6 +64,12 @@ def train(rank, world_size, opt):
 
 
     curriculum = getattr(curriculums, opt.curriculum)
+    if opt.dataset_path != "":
+        curriculum["dataset_path"]= opt.dataset_path
+    if opt.batch_size > 0:
+        curriculum["batch_size"] = opt.batch_size
+    assert osp.isdir(osp.split(curriculum["dataset_path"])[0]), f"dataset path {curriculum['dataset_path']} not found"
+
     metadata = curriculums.extract_metadata(curriculum, 0)
 
     fixed_z = z_sampler((25, 256), device='cpu', dist=metadata['z_dist'])
@@ -408,10 +414,16 @@ if __name__ == '__main__':
     parser.add_argument('--set_step', type=int, default=None)
     parser.add_argument('--model_save_interval', type=int, default=5000)
 
+    parser.add_argument('--dataset_path', type=str, default='')
+    parser.add_argument('--batch_size', type=int, default=28) # ~28 images per 24GB ram
+
     opt = parser.parse_args()
     print(opt)
     os.makedirs(opt.output_dir, exist_ok=True)
     os.makedirs(osp.join(opt.output_dir, 'evaluation/generated'), exist_ok=True)
     
+    if "CUDA_VISIBLE_DEVICES" not in os.environ:
+        os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+        os.environ["CUDA_VISIBLE_DEVICES"]="0"
     num_gpus = len(os.environ['CUDA_VISIBLE_DEVICES'].split(','))
     mp.spawn(train, args=(num_gpus, opt), nprocs=num_gpus, join=True)
