@@ -52,14 +52,13 @@ def output_images(generator, input_metadata, rank, world_size, output_dir, num_i
     metadata['psi'] = 1
 
     img_counter = rank
-    generator.eval()
     img_counter = rank
 
     if rank == 0: pbar = tqdm("generating images", total = num_imgs)
     with torch.no_grad():
         while img_counter < num_imgs:
-            z = torch.randn((metadata['batch_size'], generator.module.z_dim), device=generator.module.device)
-            generated_imgs, _ = generator.module.staged_forward(z, **metadata)
+            z = torch.randn((metadata['batch_size'], generator.z_dim), device=generator.device)
+            generated_imgs, _ = generator.staged_forward(z, **metadata)
 
             for img in generated_imgs:
                 save_image(img, os.path.join(output_dir, f'{img_counter:0>5}.jpg'), normalize=True, range=(-1, 1))

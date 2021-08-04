@@ -361,7 +361,7 @@ def train(rank, world_size, opt):
                 ema.store(generator_ddp.parameters())
                 ema.copy_to(generator_ddp.parameters())
                 generator_ddp.eval()
-                fid_evaluation.output_images(generator_ddp, metadata, rank, world_size, generated_dir)
+                fid_evaluation.output_images(generator_ddp.module, metadata, rank, world_size, generated_dir)
                 ema.restore(generator_ddp.parameters())
                 dist.barrier()
                 if rank == 0:
