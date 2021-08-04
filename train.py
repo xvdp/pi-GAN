@@ -411,7 +411,7 @@ if __name__ == '__main__':
     opt = parser.parse_args()
     print(opt)
     os.makedirs(opt.output_dir, exist_ok=True)
-    os.makedirs(osp.join(opt.output_dir, 'evaluation/generated'))
+    os.makedirs(osp.join(opt.output_dir, 'evaluation/generated'), exist_ok=True)
     
     num_gpus = len(os.environ['CUDA_VISIBLE_DEVICES'].split(','))
     mp.spawn(train, args=(num_gpus, opt), nprocs=num_gpus, join=True)
