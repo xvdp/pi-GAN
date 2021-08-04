@@ -321,8 +321,8 @@ def train(rank, world_size, opt):
                     _loop = sround((time.time() - _time)/10)
                     _total_time = round((time.time() - _start_time))
                     _msg = f"[Experiment: {opt.output_dir}] [GPU: {world_size}] [Epoch: {discriminator.epoch}/{opt.n_epochs}] "
-                    _msg += f"[Step: {discriminator.step}/{len(dataloader)//metadata['batch_size']}] "
-                    _msg += f"[D loss: {sround(d_loss.item())}] [G loss: {sround(g_loss.item())}] [Alpha: {alpha:.2f}] [Img Size: {metadata['img_size']}] "
+                    _msg += f"[Step: {discriminator.step}/{len(dataloader)}] "
+                    _msg += f"[D loss: {sround(d_loss.item(),2)}] [G loss: {sround(g_loss.item(),2)}] [Alpha: {sround(alpha,2)}] [Img Size: {metadata['img_size']}] "
                     _msg += f"[Batch Size: {metadata['batch_size']}] [TopK: {topk_num}] [Scale: {scaler.get_scale()}] [Time/it: {_loop}s] [Total Time: {_total_time}s]"
                     tqdm.write(_msg)
 
