@@ -85,7 +85,7 @@ def train(rank, world_size, opt):
 
         discriminator_ckp = osp.join(opt.load_dir, 'discriminator.pth')
         if osp.isfile(discriminator_ckp):
-            generator.load_state_dict(torch.load(discriminator_ckp, map_location=device))
+            discriminatorr.load_state_dict(torch.load(discriminator_ckp, map_location=device))
 
         ema_ckp = osp.join(opt.load_dir, 'ema.pth')
         if osp.isfile(ema_ckp):
