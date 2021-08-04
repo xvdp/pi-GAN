@@ -5,8 +5,10 @@ import os
 import os.path as osp
 import math
 import copy
+import time
 from datetime import datetime
 
+import numpy as np
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -26,6 +28,10 @@ import datasets
 import curriculums
 
 # pylint: disable=no-member
+safelog10 = lambda x: 0.0 if not x else np.log10(np.abs(x))
+sround = lambda x, d=1: np.round(x, max((-np.floor(safelog10(x)).astype(int) + d), 0))
+
+
 def setup(rank, world_size, port):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = port
@@ -57,6 +63,7 @@ def z_sampler(shape, device, dist):
 
 
 def train(rank, world_size, opt):
+    _start_time = time.time()
     torch.manual_seed(0)
 
     setup(rank, world_size, opt.port)
@@ -196,6 +203,7 @@ def train(rank, world_size, opt):
             interior_step_bar.update((discriminator.step - step_last_upsample))
 
         for i, (imgs, _) in enumerate(dataloader):
+            _time = time.time()
             if discriminator.step % opt.model_save_interval == 0 and rank == 0:
                 now = datetime.now()
                 now = now.strftime("%d--%H:%M--")
@@ -313,7 +321,13 @@ def train(rank, world_size, opt):
             if rank == 0:
                 interior_step_bar.update(1)
                 if i%10 == 0:
-                    tqdm.write(f"[Experiment: {opt.output_dir}] [GPU: {os.environ['CUDA_VISIBLE_DEVICES']}] [Epoch: {discriminator.epoch}/{opt.n_epochs}] [D loss: {d_loss.item()}] [G loss: {g_loss.item()}] [Step: {discriminator.step}] [Alpha: {alpha:.2f}] [Img Size: {metadata['img_size']}] [Batch Size: {metadata['batch_size']}] [TopK: {topk_num}] [Scale: {scaler.get_scale()}]")
+                    _loop = sround((time.time() - _time)/10)
+                    _total_time = round((time.time() - _start_time))
+                    _msg = f"[Experiment: {opt.output_dir}] [GPU: {os.environ['CUDA_VISIBLE_DEVICES']}] [Epoch: {discriminator.epoch}/{opt.n_epochs}] "
+                    _msg += f"[Step: {discriminator.step}/{len(dataloader)}] "
+                    _msg += f"[D loss: {sround(d_loss.item(),2)}] [G loss: {sround(g_loss.item(),2)}] [Alpha: {sround(alpha,2)}] [Img Size: {metadata['img_size']}] "
+                    _msg += f"[Batch Size: {metadata['batch_size']}] [TopK: {topk_num}] [Scale: {scaler.get_scale()}] [Time/it: {_loop}s] [Total Time: {_total_time}s]"
+                    tqdm.write(_msg)
 
                 if discriminator.step % opt.sample_interval == 0:
                     generator_ddp.eval()
