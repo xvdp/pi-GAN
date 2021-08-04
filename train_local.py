@@ -399,6 +399,7 @@ if __name__ == '__main__':
     OPT = parser.parse_args()
     print(OPT)
     os.makedirs(OPT.output_dir, exist_ok=True)
+    os.makedirs(os.path.join(OPT.output_dir, 'evaluation/generated'))
 
     if 'CUDA_VISIBLE_DEVICES' in os.environ:
         num_gpus =  len(os.environ['CUDA_VISIBLE_DEVICES'].split(','))
