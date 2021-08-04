@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import os.path as osp
 import math
 import copy
 from datetime import datetime
@@ -72,17 +73,27 @@ def train(rank, world_size, opt):
     CHANNELS = 3
 
     scaler = torch.cuda.amp.GradScaler()
+    generator = getattr(generators, metadata['generator'])(SIREN, metadata['latent_dim']).to(device)
+    discriminator = getattr(discriminators, metadata['discriminator'])().to(device)
+    ema = ExponentialMovingAverage(generator.parameters(), decay=0.999)
+    ema2 = ExponentialMovingAverage(generator.parameters(), decay=0.9999)
 
     if opt.load_dir != '':
-        generator = torch.load(os.path.join(opt.load_dir, 'generator.pth'), map_location=device)
-        discriminator = torch.load(os.path.join(opt.load_dir, 'discriminator.pth'), map_location=device)
-        ema = torch.load(os.path.join(opt.load_dir, 'ema.pth'), map_location=device)
-        ema2 = torch.load(os.path.join(opt.load_dir, 'ema2.pth'), map_location=device)
-    else:
-        generator = getattr(generators, metadata['generator'])(SIREN, metadata['latent_dim']).to(device)
-        discriminator = getattr(discriminators, metadata['discriminator'])().to(device)
-        ema = ExponentialMovingAverage(generator.parameters(), decay=0.999)
-        ema2 = ExponentialMovingAverage(generator.parameters(), decay=0.9999)
+        generator_ckp = osp.join(opt.load_dir, 'generator.pth')
+        if osp.isfile(generator_ckp):
+            generator.load_state_dict(torch.load(generator_ckp, map_location=device))
+
+        discriminator_ckp = osp.join(opt.load_dir, 'discriminator.pth')
+        if osp.isfile(discriminator_ckp):
+            generator.load_state_dict(torch.load(discriminator_ckp, map_location=device))
+
+        ema_ckp = osp.join(opt.load_dir, 'ema.pth')
+        if osp.isfile(ema_ckp):
+            ema.load_state_dict(torch.load(ema_ckp, map_location=device))
+
+        ema2_ckp = osp.join(opt.load_dir, 'ema2.pth')
+        if osp.isfile(ema2_ckp):
+            ema2.load_state_dict(torch.load(ema_ckp, map_location=device))
 
     generator_ddp = DDP(generator, device_ids=[rank], find_unused_parameters=True)
     discriminator_ddp = DDP(discriminator, device_ids=[rank], find_unused_parameters=True, broadcast_buffers=False)
@@ -104,10 +115,17 @@ def train(rank, world_size, opt):
     optimizer_D = torch.optim.Adam(discriminator_ddp.parameters(), lr=metadata['disc_lr'], betas=metadata['betas'], weight_decay=metadata['weight_decay'])
 
     if opt.load_dir != '':
-        optimizer_G.load_state_dict(torch.load(os.path.join(opt.load_dir, 'optimizer_G.pth')))
-        optimizer_D.load_state_dict(torch.load(os.path.join(opt.load_dir, 'optimizer_D.pth')))
-        if not metadata.get('disable_scaler', False):
-            scaler.load_state_dict(torch.load(os.path.join(opt.load_dir, 'scaler.pth')))
+        optimizer_G_ckp = osp.join(opt.load_dir, 'optimizer_G.pth')
+        optimizer_D_ckp = osp.join(opt.load_dir, 'optimizer_D.pth')
+        scaler_ckp = osp.join(opt.load_dir, 'scaler.pth')
+
+        if osp.isfile(optimizer_G_ckp):
+            optimizer_G.load_state_dict(torch.load(optimizer_G_ckp))
+        if osp.isfile(optimizer_D_ckp):
+            optimizer_D.load_state_dict(torch.load(osp.join(opt.load_dir, 'optimizer_D.pth')))
+        if not metadata.get('disable_scaler', False) and osp.isfile(scaler_ckp):
+            scaler.load_state_dict(torch.load(osp.join(opt.load_dir, 'scaler.pth')))
+
 
     generator_losses = []
     discriminator_losses = []
@@ -125,7 +143,7 @@ def train(rank, world_size, opt):
     #  Training
     # ----------
 
-    with open(os.path.join(opt.output_dir, 'options.txt'), 'w') as f:
+    with open(osp.join(opt.output_dir, 'options.txt'), 'w') as f:
         f.write(str(opt))
         f.write('\n\n')
         f.write(str(generator))
@@ -175,13 +193,13 @@ def train(rank, world_size, opt):
             if discriminator.step % opt.model_save_interval == 0 and rank == 0:
                 now = datetime.now()
                 now = now.strftime("%d--%H:%M--")
-                torch.save(ema.state_dict(), os.path.join(opt.output_dir, now + 'ema.pth'))
-                torch.save(ema2.state_dict(), os.path.join(opt.output_dir, now + 'ema2.pth'))
-                torch.save(generator_ddp.module.state_dict(), os.path.join(opt.output_dir, now + 'generator.pth'))
-                torch.save(discriminator_ddp.module.state_dict(), os.path.join(opt.output_dir, now + 'discriminator.pth'))
-                torch.save(optimizer_G.state_dict(), os.path.join(opt.output_dir, now + 'optimizer_G.pth'))
-                torch.save(optimizer_D.state_dict(), os.path.join(opt.output_dir, now + 'optimizer_D.pth'))
-                torch.save(scaler.state_dict(), os.path.join(opt.output_dir, now + 'scaler.pth'))
+                torch.save(ema.state_dict(), osp.join(opt.output_dir, now + 'ema.pth'))
+                torch.save(ema2.state_dict(), osp.join(opt.output_dir, now + 'ema2.pth'))
+                torch.save(generator_ddp.module.state_dict(), osp.join(opt.output_dir, now + 'generator.pth'))
+                torch.save(discriminator_ddp.module.state_dict(), osp.join(opt.output_dir, now + 'discriminator.pth'))
+                torch.save(optimizer_G.state_dict(), osp.join(opt.output_dir, now + 'optimizer_G.pth'))
+                torch.save(optimizer_D.state_dict(), osp.join(opt.output_dir, now + 'optimizer_D.pth'))
+                torch.save(scaler.state_dict(), osp.join(opt.output_dir, now + 'scaler.pth'))
             metadata = curriculums.extract_metadata(curriculum, discriminator.step)
 
             if dataloader.batch_size != metadata['batch_size']: break
@@ -299,7 +317,7 @@ def train(rank, world_size, opt):
                             copied_metadata['h_stddev'] = copied_metadata['v_stddev'] = 0
                             copied_metadata['img_size'] = 128
                             gen_imgs = generator_ddp.module.staged_forward(fixed_z.to(device),  **copied_metadata)[0]
-                    save_image(gen_imgs[:25], os.path.join(opt.output_dir, f"{discriminator.step}_fixed.png"), nrow=5, normalize=True)
+                    save_image(gen_imgs[:25], osp.join(opt.output_dir, f"{discriminator.step}_fixed.png"), nrow=5, normalize=True)
 
                     with torch.no_grad():
                         with torch.cuda.amp.autocast():
@@ -308,7 +326,7 @@ def train(rank, world_size, opt):
                             copied_metadata['h_mean'] += 0.5
                             copied_metadata['img_size'] = 128
                             gen_imgs = generator_ddp.module.staged_forward(fixed_z.to(device),  **copied_metadata)[0]
-                    save_image(gen_imgs[:25], os.path.join(opt.output_dir, f"{discriminator.step}_tilted.png"), nrow=5, normalize=True)
+                    save_image(gen_imgs[:25], osp.join(opt.output_dir, f"{discriminator.step}_tilted.png"), nrow=5, normalize=True)
 
                     ema.store(generator_ddp.parameters())
                     ema.copy_to(generator_ddp.parameters())
@@ -319,7 +337,7 @@ def train(rank, world_size, opt):
                             copied_metadata['h_stddev'] = copied_metadata['v_stddev'] = 0
                             copied_metadata['img_size'] = 128
                             gen_imgs = generator_ddp.module.staged_forward(fixed_z.to(device),  **copied_metadata)[0]
-                    save_image(gen_imgs[:25], os.path.join(opt.output_dir, f"{discriminator.step}_fixed_ema.png"), nrow=5, normalize=True)
+                    save_image(gen_imgs[:25], osp.join(opt.output_dir, f"{discriminator.step}_fixed_ema.png"), nrow=5, normalize=True)
 
                     with torch.no_grad():
                         with torch.cuda.amp.autocast():
@@ -328,7 +346,7 @@ def train(rank, world_size, opt):
                             copied_metadata['h_mean'] += 0.5
                             copied_metadata['img_size'] = 128
                             gen_imgs = generator_ddp.module.staged_forward(fixed_z.to(device),  **copied_metadata)[0]
-                    save_image(gen_imgs[:25], os.path.join(opt.output_dir, f"{discriminator.step}_tilted_ema.png"), nrow=5, normalize=True)
+                    save_image(gen_imgs[:25], osp.join(opt.output_dir, f"{discriminator.step}_tilted_ema.png"), nrow=5, normalize=True)
 
                     with torch.no_grad():
                         with torch.cuda.amp.autocast():
@@ -337,23 +355,23 @@ def train(rank, world_size, opt):
                             copied_metadata['h_stddev'] = copied_metadata['v_stddev'] = 0
                             copied_metadata['psi'] = 0.7
                             gen_imgs = generator_ddp.module.staged_forward(torch.randn_like(fixed_z).to(device),  **copied_metadata)[0]
-                    save_image(gen_imgs[:25], os.path.join(opt.output_dir, f"{discriminator.step}_random.png"), nrow=5, normalize=True)
+                    save_image(gen_imgs[:25], osp.join(opt.output_dir, f"{discriminator.step}_random.png"), nrow=5, normalize=True)
 
                     ema.restore(generator_ddp.parameters())
 
                 if discriminator.step % opt.sample_interval == 0:
-                    torch.save(ema.state_dict(), os.path.join(opt.output_dir, 'ema.pth'))
-                    torch.save(ema2.state_dict(), os.path.join(opt.output_dir, 'ema2.pth'))
-                    torch.save(generator_ddp.module.state_dict(), os.path.join(opt.output_dir, 'generator.pth'))
-                    torch.save(discriminator_ddp.module.state_dict(), os.path.join(opt.output_dir, 'discriminator.pth'))
-                    torch.save(optimizer_G.state_dict(), os.path.join(opt.output_dir, 'optimizer_G.pth'))
-                    torch.save(optimizer_D.state_dict(), os.path.join(opt.output_dir, 'optimizer_D.pth'))
-                    torch.save(scaler.state_dict(), os.path.join(opt.output_dir, 'scaler.pth'))
-                    torch.save(generator_losses, os.path.join(opt.output_dir, 'generator.losses'))
-                    torch.save(discriminator_losses, os.path.join(opt.output_dir, 'discriminator.losses'))
+                    torch.save(ema.state_dict(), osp.join(opt.output_dir, 'ema.pth'))
+                    torch.save(ema2.state_dict(), osp.join(opt.output_dir, 'ema2.pth'))
+                    torch.save(generator_ddp.module.state_dict(), osp.join(opt.output_dir, 'generator.pth'))
+                    torch.save(discriminator_ddp.module.state_dict(), osp.join(opt.output_dir, 'discriminator.pth'))
+                    torch.save(optimizer_G.state_dict(), osp.join(opt.output_dir, 'optimizer_G.pth'))
+                    torch.save(optimizer_D.state_dict(), osp.join(opt.output_dir, 'optimizer_D.pth'))
+                    torch.save(scaler.state_dict(), osp.join(opt.output_dir, 'scaler.pth'))
+                    torch.save(generator_losses, osp.join(opt.output_dir, 'generator.losses'))
+                    torch.save(discriminator_losses, osp.join(opt.output_dir, 'discriminator.losses'))
 
             if opt.eval_freq > 0 and (discriminator.step + 1) % opt.eval_freq == 0:
-                generated_dir = os.path.join(opt.output_dir, 'evaluation/generated')
+                generated_dir = osp.join(opt.output_dir, 'evaluation/generated')
 
                 if rank == 0:
                     fid_evaluation.setup_evaluation(metadata['dataset'], generated_dir, target_size=128)
@@ -366,7 +384,7 @@ def train(rank, world_size, opt):
                 dist.barrier()
                 if rank == 0:
                     fid = fid_evaluation.calculate_fid(metadata['dataset'], generated_dir, target_size=128)
-                    with open(os.path.join(opt.output_dir, f'fid.txt'), 'a') as f:
+                    with open(osp.join(opt.output_dir, f'fid.txt'), 'a') as f:
                         f.write(f'\n{discriminator.step}:{fid}')
 
                 torch.cuda.empty_cache()
@@ -393,7 +411,7 @@ if __name__ == '__main__':
     opt = parser.parse_args()
     print(opt)
     os.makedirs(opt.output_dir, exist_ok=True)
-    os.makedirs(os.path.join(opt.output_dir, 'evaluation/generated'))
+    os.makedirs(osp.join(opt.output_dir, 'evaluation/generated'))
     
     num_gpus = len(os.environ['CUDA_VISIBLE_DEVICES'].split(','))
     mp.spawn(train, args=(num_gpus, opt), nprocs=num_gpus, join=True)

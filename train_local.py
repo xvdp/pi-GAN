@@ -86,16 +86,27 @@ def train(rank, world_size, opt):
 
     scaler = torch.cuda.amp.GradScaler()
 
+    generator = getattr(generators, metadata['generator'])(SIREN, metadata['latent_dim']).to(device)
+    discriminator = getattr(discriminators, metadata['discriminator'])().to(device)
+    ema = ExponentialMovingAverage(generator.parameters(), decay=0.999)
+    ema2 = ExponentialMovingAverage(generator.parameters(), decay=0.9999)
+
     if opt.load_dir != '':
-        generator = torch.load(osp.join(opt.load_dir, 'generator.pth'), map_location=device)
-        discriminator = torch.load(osp.join(opt.load_dir, 'discriminator.pth'), map_location=device)
-        ema = torch.load(osp.join(opt.load_dir, 'ema.pth'), map_location=device)
-        ema2 = torch.load(osp.join(opt.load_dir, 'ema2.pth'), map_location=device)
-    else:
-        generator = getattr(generators, metadata['generator'])(SIREN, metadata['latent_dim']).to(device)
-        discriminator = getattr(discriminators, metadata['discriminator'])().to(device)
-        ema = ExponentialMovingAverage(generator.parameters(), decay=0.999)
-        ema2 = ExponentialMovingAverage(generator.parameters(), decay=0.9999)
+        generator_ckp = osp.join(opt.load_dir, 'generator.pth')
+        if osp.isfile(generator_ckp):
+            generator.load_state_dict(torch.load(generator_ckp, map_location=device))
+
+        discriminator_ckp = osp.join(opt.load_dir, 'discriminator.pth')
+        if osp.isfile(discriminator_ckp):
+            generator.load_state_dict(torch.load(discriminator_ckp, map_location=device))
+
+        ema_ckp = osp.join(opt.load_dir, 'ema.pth')
+        if osp.isfile(ema_ckp):
+            ema.load_state_dict(torch.load(ema_ckp, map_location=device))
+
+        ema2_ckp = osp.join(opt.load_dir, 'ema2.pth')
+        if osp.isfile(ema2_ckp):
+            ema2.load_state_dict(torch.load(ema_ckp, map_location=device))
 
     generator_parameters = generator.parameters()
     discriminator_parameters = discriminator.parameters()
@@ -114,9 +125,15 @@ def train(rank, world_size, opt):
     optimizer_D = torch.optim.Adam(discriminator_parameters, lr=metadata['disc_lr'], betas=metadata['betas'], weight_decay=metadata['weight_decay'])
 
     if opt.load_dir != '':
-        optimizer_G.load_state_dict(torch.load(osp.join(opt.load_dir, 'optimizer_G.pth')))
-        optimizer_D.load_state_dict(torch.load(osp.join(opt.load_dir, 'optimizer_D.pth')))
-        if not metadata.get('disable_scaler', False):
+        optimizer_G_ckp = osp.join(opt.load_dir, 'optimizer_G.pth')
+        optimizer_D_ckp = osp.join(opt.load_dir, 'optimizer_D.pth')
+        scaler_ckp = osp.join(opt.load_dir, 'scaler.pth')
+
+        if osp.isfile(optimizer_G_ckp):
+            optimizer_G.load_state_dict(torch.load(optimizer_G_ckp))
+        if osp.isfile(optimizer_D_ckp):
+            optimizer_D.load_state_dict(torch.load(osp.join(opt.load_dir, 'optimizer_D.pth')))
+        if not metadata.get('disable_scaler', False) and osp.isfile(scaler_ckp):
             scaler.load_state_dict(torch.load(osp.join(opt.load_dir, 'scaler.pth')))
 
     generator_losses = []
@@ -401,7 +418,7 @@ if __name__ == '__main__':
     dataset_path='/media/z/Elements1/data/Face/CelebA/img_align_celeba/*.jpg'
     output_dir='/media/z/Malatesta/zXb/share/pigan'
     # to continue training pass --load_dir
-    python train_local.py --curriculum 'CelebA' --output_dir $output_dir --dataset_path $dataset_path --load_dir $output_dir
+    python train_local.py --curriculum 'CelebA' --output_dir $output_dir --dataset_path $dataset_path --load_dir $output_dir --batch_size 28
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_epochs", type=int, default=3000, help="number of epochs of training")
