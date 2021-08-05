@@ -327,7 +327,7 @@ def train(rank, world_size, opt):
 
             if rank == 0:
                 # interior_step_bar.update(1)
-                _loop = sround((time.time() - _time)/10)
+                _loop = sround(time.time() - _time)
                 _total_time = round((time.time() - _start_time))
                 log.collect(Epoch=discriminator.epoch, Step=discriminator.step, D_Loss=sround(d_loss.item(),2), G_Loss=sround(g_loss.item(),2), Alpha=sround(alpha,2), ImgSz=metadata['img_size'])
                 log.collect(Time=_loop, Total_Time=_total_time)
