@@ -1,5 +1,5 @@
 """Train pi-GAN. Supports distributed training."""
-
+import logging
 import argparse
 import os
 import os.path as osp
@@ -16,8 +16,10 @@ import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torchvision.utils import save_image
 
-from tqdm import tqdm
+# from tqdm import tqdm
 from torch_ema import ExponentialMovingAverage
+
+from kotools import PLog
 
 from generators import generators
 from discriminators import discriminators
@@ -62,13 +64,30 @@ def z_sampler(shape, device, dist):
     return z
 
 
+
+def load_models(opt, models, checkpoints, device):
+    out = 0
+    ck = [osp.join(opt.output_dir, k) for k in checkpoints]
+    for i, model in enumerate(models):
+        if osp.isfile(ck[i]):
+            model.load_state_dict(torch.load(ck[i], map_location=device))
+            out += 1
+    return out
+
+
 def train(rank, world_size, opt):
     _start_time = time.time()
     torch.manual_seed(0)
 
+    # get current state
+    log = PLog(osp.join(opt.output_dir, "train.csv"))
+    _ini_epoch = 0
+    if log.len:
+        _ini_epoch = log.values["Epoch"] + 1
+        assert not opt.continue_training, f"{log.len} training steps recorded in {opt.output_dir}, change or delete output_dir"
+
     setup(rank, world_size, opt.port)
     device = torch.device(rank)
-
 
     curriculum = getattr(curriculums, opt.curriculum)
     if opt.dataset_path != "":
@@ -77,12 +96,12 @@ def train(rank, world_size, opt):
         curriculum["batch_size"] = opt.batch_size
     assert osp.isdir(osp.split(curriculum["dataset_path"])[0]), f"dataset path {curriculum['dataset_path']} not found"
 
+
+    # should this refer to current step ?
     metadata = curriculums.extract_metadata(curriculum, 0)
 
     fixed_z = z_sampler((25, 256), device='cpu', dist=metadata['z_dist'])
-
     SIREN = getattr(siren, metadata['model'])
-
     CHANNELS = 3
 
     scaler = torch.cuda.amp.GradScaler()
@@ -91,28 +110,17 @@ def train(rank, world_size, opt):
     ema = ExponentialMovingAverage(generator.parameters(), decay=0.999)
     ema2 = ExponentialMovingAverage(generator.parameters(), decay=0.9999)
 
-    if opt.load_dir != '':
-        generator_ckp = osp.join(opt.load_dir, 'generator.pth')
-        if osp.isfile(generator_ckp):
-            generator.load_state_dict(torch.load(generator_ckp, map_location=device))
-
-        discriminator_ckp = osp.join(opt.load_dir, 'discriminator.pth')
-        if osp.isfile(discriminator_ckp):
-            discriminator.load_state_dict(torch.load(discriminator_ckp, map_location=device))
-
-        ema_ckp = osp.join(opt.load_dir, 'ema.pth')
-        if osp.isfile(ema_ckp):
-            ema.load_state_dict(torch.load(ema_ckp, map_location=device))
-
-        ema2_ckp = osp.join(opt.load_dir, 'ema2.pth')
-        if osp.isfile(ema2_ckp):
-            ema2.load_state_dict(torch.load(ema_ckp, map_location=device))
+    if opt.continue_training:
+        _models = (generator, discriminator, ema, ema2)
+        _checkpoints = ["generator.pth","discriminator.pth", 'ema.pth', 'ema2.pth']
+        _loaded = load_models(opt, _models, _checkpoints, device)
+        if log.len:
+            assert _loaded == len(_models), f"Incomplete data, could not load all models {_checkpoints}"
 
     generator_ddp = DDP(generator, device_ids=[rank], find_unused_parameters=True)
     discriminator_ddp = DDP(discriminator, device_ids=[rank], find_unused_parameters=True, broadcast_buffers=False)
     generator = generator_ddp.module
     discriminator = discriminator_ddp.module
-
 
 
     if metadata.get('unique_lr', False):
@@ -127,25 +135,24 @@ def train(rank, world_size, opt):
 
     optimizer_D = torch.optim.Adam(discriminator_ddp.parameters(), lr=metadata['disc_lr'], betas=metadata['betas'], weight_decay=metadata['weight_decay'])
 
-    if opt.load_dir != '':
-        optimizer_G_ckp = osp.join(opt.load_dir, 'optimizer_G.pth')
-        optimizer_D_ckp = osp.join(opt.load_dir, 'optimizer_D.pth')
-        scaler_ckp = osp.join(opt.load_dir, 'scaler.pth')
+    if opt.continue_training:
+        _models = [optimizer_G, optimizer_D]
+        _checkpoints = ["optimizer_G.pth","optimizer_D.pth"]
+        if not metadata.get('disable_scaler', False):
+            _models.append(scaler)
+            _checkpoints.append('scaler.pth')
 
-        if osp.isfile(optimizer_G_ckp):
-            optimizer_G.load_state_dict(torch.load(optimizer_G_ckp))
-        if osp.isfile(optimizer_D_ckp):
-            optimizer_D.load_state_dict(torch.load(osp.join(opt.load_dir, 'optimizer_D.pth')))
-        if not metadata.get('disable_scaler', False) and osp.isfile(scaler_ckp):
-            scaler.load_state_dict(torch.load(osp.join(opt.load_dir, 'scaler.pth')))
-
+        _loaded = load_models(opt, _models, _checkpoints, device)
+        if log.len:
+            assert _loaded == len(_models), f"Incomplete data, could not load all models {_checkpoints}"
 
     generator_losses = []
     discriminator_losses = []
 
-    if opt.set_step != None:
-        generator.step = opt.set_step
-        discriminator.step = opt.set_step
+    generator.step = log.len
+    discriminator.step = log.len
+    generator.epoch = _ini_epoch
+    discriminator.epoch = _ini_epoch
 
     if metadata.get('disable_scaler', False):
         scaler = torch.cuda.amp.GradScaler(enabled=False)
@@ -167,11 +174,11 @@ def train(rank, world_size, opt):
 
     torch.manual_seed(rank)
     dataloader = None
-    total_progress_bar = tqdm(total = opt.n_epochs, desc = "Total progress", dynamic_ncols=True)
-    total_progress_bar.update(discriminator.epoch)
-    interior_step_bar = tqdm(dynamic_ncols=True)
-    for _ in range (opt.n_epochs):
-        total_progress_bar.update(1)
+    # total_progress_bar = tqdm(total = opt.n_epochs - _ini_epoch, desc = "Total progress", dynamic_ncols=True)
+    # total_progress_bar.update(discriminator.epoch)
+    # interior_step_bar = tqdm(dynamic_ncols=True)
+    for epoch in range (_ini_epoch, opt.n_epochs):
+        # total_progress_bar.update(1)
 
         metadata = curriculums.extract_metadata(curriculum, discriminator.step)
 
@@ -198,9 +205,9 @@ def train(rank, world_size, opt):
             step_last_upsample = curriculums.last_upsample_step(curriculum, discriminator.step)
 
 
-            interior_step_bar.reset(total=(step_next_upsample - step_last_upsample))
-            interior_step_bar.set_description(f"Progress to next stage")
-            interior_step_bar.update((discriminator.step - step_last_upsample))
+            # interior_step_bar.reset(total=(step_next_upsample - step_last_upsample))
+            # interior_step_bar.set_description(f"Progress to next stage")
+            # interior_step_bar.update((discriminator.step - step_last_upsample))
 
         for i, (imgs, _) in enumerate(dataloader):
             _time = time.time()
@@ -319,15 +326,18 @@ def train(rank, world_size, opt):
 
 
             if rank == 0:
-                interior_step_bar.update(1)
-                if i%10 == 0:
-                    _loop = sround((time.time() - _time)/10)
-                    _total_time = round((time.time() - _start_time))
-                    _msg = f"[Experiment: {opt.output_dir}] [GPU: {os.environ['CUDA_VISIBLE_DEVICES']}] [Epoch: {discriminator.epoch}/{opt.n_epochs}] "
-                    _msg += f"[Step: {discriminator.step}/{len(dataloader)}] "
-                    _msg += f"[D loss: {sround(d_loss.item(),2)}] [G loss: {sround(g_loss.item(),2)}] [Alpha: {sround(alpha,2)}] [Img Size: {metadata['img_size']}] "
-                    _msg += f"[Batch Size: {metadata['batch_size']}] [TopK: {topk_num}] [Scale: {scaler.get_scale()}] [Time/it: {_loop}s] [Total Time: {_total_time}s]"
-                    tqdm.write(_msg)
+                # interior_step_bar.update(1)
+                _loop = sround((time.time() - _time)/10)
+                _total_time = round((time.time() - _start_time))
+                log.collect(Epoch=discriminator.epoch, Step=discriminator.step, D_Loss=sround(d_loss.item(),2), G_Loss=sround(g_loss.item(),2), Alpha=sround(alpha,2), ImgSz=metadata['img_size'])
+                log.collect(Time=_loop, Total_Time=_total_time)
+                log.write()
+                # if i%10 == 0:
+                    # _msg = f"[Experiment: {opt.output_dir}] [GPU: {os.environ['CUDA_VISIBLE_DEVICES']}] [Epoch: {discriminator.epoch}/{opt.n_epochs}] "
+                    # _msg += f"[Step: {discriminator.step}/{len(dataloader)}] "
+                    # _msg += f"[D loss: {sround(d_loss.item(),2)}] [G loss: {sround(g_loss.item(),2)}] [Alpha: {sround(alpha,2)}] [Img Size: {metadata['img_size']}] "
+                    # _msg += f"[Batch Size: {metadata['batch_size']}] [TopK: {topk_num}] [Scale: {scaler.get_scale()}] [Time/it: {_loop}s] [Total Time: {_total_time}s]"
+                    # tqdm.write(_msg)
 
                 if discriminator.step % opt.sample_interval == 0:
                     generator_ddp.eval()
@@ -421,7 +431,6 @@ if __name__ == '__main__':
     parser.add_argument("--n_epochs", type=int, default=3000, help="number of epochs of training")
     parser.add_argument("--sample_interval", type=int, default=200, help="interval between image sampling")
     parser.add_argument('--output_dir', type=str, default='debug')
-    parser.add_argument('--load_dir', type=str, default='')
     parser.add_argument('--curriculum', type=str, required=True)
     parser.add_argument('--eval_freq', type=int, default=5000)
     parser.add_argument('--port', type=str, default='12355')
@@ -429,6 +438,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_save_interval', type=int, default=5000)
 
     parser.add_argument('--dataset_path', type=str, default='')
+    parser.add_argument('--continue_training', type=int, default=1) # if 0, but output_dir exists... assert
     parser.add_argument('--batch_size', type=int, default=28) # ~28 images per 24GB ram
 
     opt = parser.parse_args()
