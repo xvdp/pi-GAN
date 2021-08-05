@@ -27,21 +27,26 @@ def output_real_images(dataloader, num_imgs, real_dir):
             save_image(img, os.path.join(real_dir, f'{img_counter:0>5}.jpg'), normalize=True, range=(-1, 1))
             img_counter += 1
 
-def setup_evaluation(dataset_name, generated_dir, target_size=128, num_imgs=8000):
-    # Only make real images if they haven't been made yet
+def setup_evaluation(dataset_name, generated_dir, dataset_path, target_size=128, num_imgs=8000):
+    """Only make real images if they haven't been made yet
+    this needs to be setup on init not after 5k iterations
+    """
+    if generated_dir is not None:
+        os.makedirs(generated_dir, exist_ok=True)
+
     real_dir = os.path.join('EvalImages', dataset_name + '_real_images_' + str(target_size))
     if not os.path.exists(real_dir):
         os.makedirs(real_dir)
-    
-    if len(os.listdir(real_dir)) < num_imgs:
-        dataloader, CHANNELS = datasets.get_dataset(dataset_name, img_size=target_size)
+
+    _num_imgs = len([f.name for f in os.scandir(real_dir) if f.name[-4:] == ".jpg"])
+    if _num_imgs < num_imgs:
+        dataloader, CHANNELS = datasets.get_dataset(dataset_name, img_size=target_size, dataset_path=dataset_path)
         print('outputting real images...')
         output_real_images(dataloader, num_imgs, real_dir)
         print('...done')
 
-    if generated_dir is not None:
-        os.makedirs(generated_dir, exist_ok=True)
     return real_dir
+
 
 def output_images(generator, input_metadata, rank, world_size, output_dir, num_imgs=2048):
     metadata = copy.deepcopy(input_metadata)
@@ -78,9 +83,10 @@ def calculate_fid(dataset_name, generated_dir, target_size=256):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, default='CelebA')
+    parser.add_argument('--dataset_path', type=str, required=True)
     parser.add_argument('--img_size', type=int, default=128)
     parser.add_argument('--num_imgs', type=int, default=8000)
 
     opt = parser.parse_args()
 
-    real_images_dir = setup_evaluation(opt.dataset, None, target_size=opt.img_size, num_imgs=opt.num_imgs)
+    real_images_dir = setup_evaluation(opt.dataset, None, target_size=opt.img_size, dataset_path=opt.dataset_path, num_imgs=opt.num_imgs)

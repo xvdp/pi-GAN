@@ -79,37 +79,44 @@ def train(rank, world_size, opt):
     _start_time = time.time()
     torch.manual_seed(0)
 
-    # get current state
+    # logger
     log = PLog(osp.join(opt.output_dir, "train.csv"))
     _ini_epoch = 0
     if log.len:
-        _ini_epoch = log.values["Epoch"] + 1
-        assert not opt.continue_training, f"{log.len} training steps recorded in {opt.output_dir}, change or delete output_dir"
+        _ini_epoch = int(log.values["Epoch"] + 1)
+        assert opt.continue_training == 1, f"{log.len} training steps recorded in {opt.output_dir}, set continue_training = 1, change or delete output_dir"
 
+    # setup hw use
     setup(rank, world_size, opt.port)
     device = torch.device(rank)
 
+    # get options
     curriculum = getattr(curriculums, opt.curriculum)
     if opt.dataset_path != "":
         curriculum["dataset_path"]= opt.dataset_path
     if opt.batch_size > 0:
         curriculum["batch_size"] = opt.batch_size
     assert osp.isdir(osp.split(curriculum["dataset_path"])[0]), f"dataset path {curriculum['dataset_path']} not found"
-
-
-    # should this refer to current step ?
     metadata = curriculums.extract_metadata(curriculum, 0)
+
+    # setup fid evaluation
+    if rank == 0:
+        generated_dir = osp.join(opt.output_dir, 'evaluation/generated')
+        fid_evaluation.setup_evaluation(metadata['dataset'], generated_dir, dataset_path=metadata["dataset_path"], target_size=128)
 
     fixed_z = z_sampler((25, 256), device='cpu', dist=metadata['z_dist'])
     SIREN = getattr(siren, metadata['model'])
     CHANNELS = 3
 
+    # define models
     scaler = torch.cuda.amp.GradScaler()
     generator = getattr(generators, metadata['generator'])(SIREN, metadata['latent_dim']).to(device)
     discriminator = getattr(discriminators, metadata['discriminator'])().to(device)
     ema = ExponentialMovingAverage(generator.parameters(), decay=0.999)
     ema2 = ExponentialMovingAverage(generator.parameters(), decay=0.9999)
 
+    # default: continue training
+    # load checkpoints
     if opt.continue_training:
         _models = (generator, discriminator, ema, ema2)
         _checkpoints = ["generator.pth","discriminator.pth", 'ema.pth', 'ema2.pth']
@@ -121,7 +128,6 @@ def train(rank, world_size, opt):
     discriminator_ddp = DDP(discriminator, device_ids=[rank], find_unused_parameters=True, broadcast_buffers=False)
     generator = generator_ddp.module
     discriminator = discriminator_ddp.module
-
 
     if metadata.get('unique_lr', False):
         mapping_network_param_names = [name for name, _ in generator_ddp.module.siren.mapping_network.named_parameters()]
@@ -174,11 +180,8 @@ def train(rank, world_size, opt):
 
     torch.manual_seed(rank)
     dataloader = None
-    # total_progress_bar = tqdm(total = opt.n_epochs - _ini_epoch, desc = "Total progress", dynamic_ncols=True)
-    # total_progress_bar.update(discriminator.epoch)
-    # interior_step_bar = tqdm(dynamic_ncols=True)
+
     for epoch in range (_ini_epoch, opt.n_epochs):
-        # total_progress_bar.update(1)
 
         metadata = curriculums.extract_metadata(curriculum, discriminator.step)
 
@@ -204,11 +207,6 @@ def train(rank, world_size, opt):
             step_next_upsample = curriculums.next_upsample_step(curriculum, discriminator.step)
             step_last_upsample = curriculums.last_upsample_step(curriculum, discriminator.step)
 
-
-            # interior_step_bar.reset(total=(step_next_upsample - step_last_upsample))
-            # interior_step_bar.set_description(f"Progress to next stage")
-            # interior_step_bar.update((discriminator.step - step_last_upsample))
-
         for i, (imgs, _) in enumerate(dataloader):
             _time = time.time()
             if discriminator.step % opt.model_save_interval == 0 and rank == 0:
@@ -223,7 +221,8 @@ def train(rank, world_size, opt):
                 torch.save(scaler.state_dict(), osp.join(opt.output_dir, now + 'scaler.pth'))
             metadata = curriculums.extract_metadata(curriculum, discriminator.step)
 
-            if dataloader.batch_size != metadata['batch_size']: break
+            if dataloader.batch_size != metadata['batch_size']:
+                break
 
             if scaler.get_scale() < 1:
                 scaler.update(1.)
@@ -326,18 +325,11 @@ def train(rank, world_size, opt):
 
 
             if rank == 0:
-                # interior_step_bar.update(1)
                 _loop = sround(time.time() - _time)
                 _total_time = round((time.time() - _start_time))
                 log.collect(Epoch=discriminator.epoch, Step=discriminator.step, D_Loss=sround(d_loss.item(),2), G_Loss=sround(g_loss.item(),2), Alpha=sround(alpha,2), ImgSz=metadata['img_size'])
                 log.collect(Time=_loop, Total_Time=_total_time)
                 log.write()
-                # if i%10 == 0:
-                    # _msg = f"[Experiment: {opt.output_dir}] [GPU: {os.environ['CUDA_VISIBLE_DEVICES']}] [Epoch: {discriminator.epoch}/{opt.n_epochs}] "
-                    # _msg += f"[Step: {discriminator.step}/{len(dataloader)}] "
-                    # _msg += f"[D loss: {sround(d_loss.item(),2)}] [G loss: {sround(g_loss.item(),2)}] [Alpha: {sround(alpha,2)}] [Img Size: {metadata['img_size']}] "
-                    # _msg += f"[Batch Size: {metadata['batch_size']}] [TopK: {topk_num}] [Scale: {scaler.get_scale()}] [Time/it: {_loop}s] [Total Time: {_total_time}s]"
-                    # tqdm.write(_msg)
 
                 if discriminator.step % opt.sample_interval == 0:
                     generator_ddp.eval()
@@ -400,11 +392,8 @@ def train(rank, world_size, opt):
                     torch.save(generator_losses, osp.join(opt.output_dir, 'generator.losses'))
                     torch.save(discriminator_losses, osp.join(opt.output_dir, 'discriminator.losses'))
 
+            # evaluate FID
             if opt.eval_freq > 0 and (discriminator.step + 1) % opt.eval_freq == 0:
-                generated_dir = osp.join(opt.output_dir, 'evaluation/generated')
-
-                if rank == 0:
-                    fid_evaluation.setup_evaluation(metadata['dataset'], generated_dir, target_size=128)
                 dist.barrier()
                 ema.store(generator_ddp.parameters())
                 ema.copy_to(generator_ddp.parameters())
