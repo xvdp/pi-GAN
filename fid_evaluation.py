@@ -32,6 +32,8 @@ def setup_evaluation(dataset_name, generated_dir, target_size=128, num_imgs=8000
     real_dir = os.path.join('EvalImages', dataset_name + '_real_images_' + str(target_size))
     if not os.path.exists(real_dir):
         os.makedirs(real_dir)
+    
+    if len(os.listdir(real_dir)) < num_imgs:
         dataloader, CHANNELS = datasets.get_dataset(dataset_name, img_size=target_size)
         print('outputting real images...')
         output_real_images(dataloader, num_imgs, real_dir)
