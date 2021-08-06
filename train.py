@@ -419,7 +419,7 @@ def train(rank, world_size, opt):
         discriminator.epoch += 1
         generator.epoch += 1
 
-        if not _continue(opt.output_dir):
+        if not _continue(opt.output_dir) and rank==0:
             break
 
 
