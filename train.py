@@ -1,5 +1,4 @@
 """Train pi-GAN. Supports distributed training."""
-import logging
 import argparse
 import os
 import os.path as osp
@@ -32,6 +31,16 @@ import curriculums
 # pylint: disable=no-member
 safelog10 = lambda x: 0.0 if not x else np.log10(np.abs(x))
 sround = lambda x, d=1: np.round(x, max((-np.floor(safelog10(x)).astype(int) + d), 0))
+
+def _continue(folder, init=False):
+    """
+    Create place holder file. Kill file to stop training at end of epoch
+    """
+    _cont = osp.join(folder, "_continue_training")
+    if init and not osp.isfile(_cont):
+        with open(_cont, "w") as _fi:
+            pass
+    return osp.isfile(_cont)
 
 
 def setup(rank, world_size, port):
@@ -85,6 +94,8 @@ def train(rank, world_size, opt):
     if log.len:
         _ini_epoch = int(log.values["Epoch"] + 1)
         assert opt.continue_training == 1, f"{log.len} training steps recorded in {opt.output_dir}, set continue_training = 1, change or delete output_dir"
+    
+    _continue(opt.output_dir, init=True)
 
     # setup hw use
     setup(rank, world_size, opt.port)
@@ -203,6 +214,8 @@ def train(rank, world_size, opt):
                                         world_size,
                                         rank,
                                         **metadata)
+            if epoch == _ini_epoch:
+                print("\ndataloader", len(dataloader), "batch_size", dataloader.batch_size)
 
             step_next_upsample = curriculums.next_upsample_step(curriculum, discriminator.step)
             step_last_upsample = curriculums.last_upsample_step(curriculum, discriminator.step)
@@ -210,15 +223,11 @@ def train(rank, world_size, opt):
         for i, (imgs, _) in enumerate(dataloader):
             _time = time.time()
             if discriminator.step % opt.model_save_interval == 0 and rank == 0:
-                now = datetime.now()
-                now = now.strftime("%d--%H:%M--")
-                torch.save(ema.state_dict(), osp.join(opt.output_dir, now + 'ema.pth'))
-                torch.save(ema2.state_dict(), osp.join(opt.output_dir, now + 'ema2.pth'))
-                torch.save(generator_ddp.module.state_dict(), osp.join(opt.output_dir, now + 'generator.pth'))
-                torch.save(discriminator_ddp.module.state_dict(), osp.join(opt.output_dir, now + 'discriminator.pth'))
-                torch.save(optimizer_G.state_dict(), osp.join(opt.output_dir, now + 'optimizer_G.pth'))
-                torch.save(optimizer_D.state_dict(), osp.join(opt.output_dir, now + 'optimizer_D.pth'))
-                torch.save(scaler.state_dict(), osp.join(opt.output_dir, now + 'scaler.pth'))
+                save_models(models=[ema, ema2, generator_ddp.module, discriminator_ddp.module,
+                                    optimizer_G, optimizer_D, scaler],
+                            names=['ema.pth', 'ema2.pth', 'generator.pth', 'discriminator.pth',
+                                   'optimizer_G.pth', 'optimizer_D.pth', 'scaler.pth'],
+                            folder=opt.output_dir,  prefix=True)
             metadata = curriculums.extract_metadata(curriculum, discriminator.step)
 
             if dataloader.batch_size != metadata['batch_size']:
@@ -382,13 +391,9 @@ def train(rank, world_size, opt):
                     ema.restore(generator_ddp.parameters())
 
                 if discriminator.step % opt.sample_interval == 0:
-                    torch.save(ema.state_dict(), osp.join(opt.output_dir, 'ema.pth'))
-                    torch.save(ema2.state_dict(), osp.join(opt.output_dir, 'ema2.pth'))
-                    torch.save(generator_ddp.module.state_dict(), osp.join(opt.output_dir, 'generator.pth'))
-                    torch.save(discriminator_ddp.module.state_dict(), osp.join(opt.output_dir, 'discriminator.pth'))
-                    torch.save(optimizer_G.state_dict(), osp.join(opt.output_dir, 'optimizer_G.pth'))
-                    torch.save(optimizer_D.state_dict(), osp.join(opt.output_dir, 'optimizer_D.pth'))
-                    torch.save(scaler.state_dict(), osp.join(opt.output_dir, 'scaler.pth'))
+                    save_models(models=[ema, ema2, generator_ddp.module, discriminator_ddp.module, optimizer_G, optimizer_D, scaler],
+                            names=['ema.pth', 'ema2.pth', 'generator.pth', 'discriminator.pth', 'optimizer_G.pth', 'optimizer_D.pth', 'scaler.pth'],
+                            folder=opt.output_dir,  prefix=False)
                     torch.save(generator_losses, osp.join(opt.output_dir, 'generator.losses'))
                     torch.save(discriminator_losses, osp.join(opt.output_dir, 'discriminator.losses'))
 
@@ -413,7 +418,26 @@ def train(rank, world_size, opt):
         discriminator.epoch += 1
         generator.epoch += 1
 
+        if not _continue(opt.output_dir):
+            break
+
+
+    save_models(models=[ema, ema2, generator_ddp.module, discriminator_ddp.module, optimizer_G, optimizer_D, scaler],
+                names=['ema.pth', 'ema2.pth', 'generator.pth', 'discriminator.pth', 'optimizer_G.pth', 'optimizer_D.pth', 'scaler.pth'],
+                folder=opt.output_dir,  prefix=False)
+
     cleanup()
+
+def save_models(models, names, folder, prefix=False):
+    now = ""
+    if prefix:
+        now = datetime.now()
+        now = now.strftime("%d--%H:%M--")
+    prefix = now
+    for i,  model in enumerate(models):
+        torch.save(model.state_dict(), osp.join(folder, f"{now}{names[i]}"))
+
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
