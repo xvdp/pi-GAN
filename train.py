@@ -93,6 +93,7 @@ def train(rank, world_size, opt):
     _ini_epoch = 0
     if log.len:
         _ini_epoch = int(log.values["Epoch"] + 1)
+        _start_time -= log.values["Total_Time"]
         assert opt.continue_training == 1, f"{log.len} training steps recorded in {opt.output_dir}, set continue_training = 1, change or delete output_dir"
     
     _continue(opt.output_dir, init=True)
